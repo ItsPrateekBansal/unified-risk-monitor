@@ -83,6 +83,31 @@ async def root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow()}
 
+@app.get("/customers", response_model=List[CustomerRiskResponse])
+async def get_all_customers(
+    limit: int = 100,
+    offset: int = 0,
+    search: Optional[str] = None,
+    risk_level: Optional[str] = None,
+    db=Depends(get_db)
+):
+    """
+    Get all customers with optional filtering
+    """
+    try:
+        # Use MCP Data Agent to fetch all customers
+        customers = await mcp_orchestrator.get_all_customers(
+            limit=limit,
+            offset=offset,
+            search=search,
+            risk_level=risk_level
+        )
+        
+        return customers
+    except Exception as e:
+        logger.error(f"Error fetching customers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/customers/risky", response_model=List[CustomerRiskResponse])
 async def get_risky_customers(
     limit: int = 50,
@@ -178,6 +203,39 @@ async def trigger_osint_enrichment(customer_id: str, db=Depends(get_db)):
         return {"message": "OSINT enrichment completed", "signals": result}
     except Exception as e:
         logger.error(f"Error enriching customer with OSINT: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class DataGenerationRequest(BaseModel):
+    num_customers: int = 100
+    include_risky: bool = True
+    risk_distribution: Optional[Dict[str, int]] = None
+
+@app.post("/data/generate")
+async def generate_ai_data(request: DataGenerationRequest, db=Depends(get_db)):
+    """
+    Generate AI-powered synthetic customer data
+    """
+    try:
+        result = await mcp_orchestrator.generate_customer_data(
+            num_customers=request.num_customers,
+            include_risky=request.include_risky,
+            risk_distribution=request.risk_distribution
+        )
+        return {"message": f"Generated {request.num_customers} customers", "data": result}
+    except Exception as e:
+        logger.error(f"Error generating data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/data/clear")
+async def clear_all_data(db=Depends(get_db)):
+    """
+    Clear all customer data
+    """
+    try:
+        result = await mcp_orchestrator.clear_all_data()
+        return {"message": "All data cleared successfully", "result": result}
+    except Exception as e:
+        logger.error(f"Error clearing data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
